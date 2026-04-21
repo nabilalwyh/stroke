@@ -4,7 +4,7 @@
 import streamlit as st
 import tensorflow as tf
 import numpy as np
-# import cv2
+import cv2
 from PIL import Image
 import tensorflow.keras.backend as K
 
@@ -82,29 +82,29 @@ if uploaded_file is not None:
     st.subheader("Original Image")
     st.image(img, use_container_width=True)
 
-    # ======================
+    # ====================== 
     # SEGMENTATION (FIX)
-    # ======================
+    # ====================== 
     raw_mask = seg_model.predict(img_array, verbose=0)[0]
 
     if raw_mask.shape[-1] == 1:
         raw_mask = raw_mask.squeeze()
 
-    # ======================
+    # ====================== 
     # FIX VISUAL (INI YANG BENER)
-    # ======================
+    # ====================== 
     mask_display = cv2.normalize(raw_mask, None, 0, 255, cv2.NORM_MINMAX)
     mask_display = mask_display.astype(np.uint8)
 
-    # ======================
+    # ====================== 
     # BINARY (SAMA KAYAK NOTEBOOK)
-    # ======================
+    # ====================== 
     pred_mask = (raw_mask > 0.3).astype(np.uint8)
     pred_mask = cv2.medianBlur(pred_mask, 5)
 
-    # ======================
+    # ====================== 
     # APPLY MASK
-    # ======================
+    # ====================== 
     masked_img = img_array[0] * np.expand_dims(pred_mask, axis=-1)
 
     if masked_img.shape[-1] == 1:
@@ -113,18 +113,18 @@ if uploaded_file is not None:
     masked_img = cv2.resize(masked_img, (224, 224))
     masked_img = np.expand_dims(masked_img, axis=0)
 
-    # ======================
+    # ====================== 
     # CLASSIFICATION
-    # ======================
+    # ====================== 
     pred_cls = cls_model.predict(masked_img, verbose=0)
 
     idx = np.argmax(pred_cls)
     label = class_labels[idx]
     confidence = float(pred_cls[0][idx])
 
-    # ======================
+    # ====================== 
     # VISUALISASI (FIX)
-    # ======================
+    # ====================== 
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -140,9 +140,9 @@ if uploaded_file is not None:
         overlay = cv2.addWeighted(overlay, 0.7, heatmap, 0.3, 0)
         st.image(overlay, caption="Overlay")
 
-    # ======================
+    # ====================== 
     # RESULT
-    # ======================
+    # ====================== 
     st.subheader("Prediction")
 
     if label == "Normal":
