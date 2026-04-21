@@ -34,7 +34,7 @@ def iou(y_true, y_pred):
 @st.cache_resource
 def load_models():
     seg_model = tf.keras.models.load_model(
-        "new2\seg_model (6).keras",
+        "new2/seg_model (6).keras",
         custom_objects={
             'bce_dice_loss': bce_dice_loss,
             'dice_coef': dice_coef,
@@ -43,7 +43,7 @@ def load_models():
         }
     )
 
-    cls_model = tf.keras.models.load_model("new2\klas_model (6).keras")
+    cls_model = tf.keras.models.load_model("new2/klas_model (6).keras")
     return seg_model, cls_model
 
 seg_model, cls_model = load_models()
