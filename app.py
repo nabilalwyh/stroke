@@ -4,7 +4,7 @@
 import streamlit as st
 import tensorflow as tf
 import numpy as np
-import cv2
+# import cv2
 from PIL import Image
 import tensorflow.keras.backend as K
 
