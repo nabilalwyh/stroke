@@ -9,7 +9,7 @@ from PIL import Image
 import tensorflow.keras.backend as K
 
 # =========================
-# 2. CUSTOM LOSS
+# 2. CUSTOM LOSS (SAMA)
 # =========================
 def dice_coef(y_true, y_pred, smooth=1e-6):
     y_true_f = K.flatten(y_true)
@@ -54,7 +54,7 @@ seg_model, cls_model = load_models()
 class_labels = ["Normal", "Hemoragik", "Iskemik"]
 
 # =========================
-# 5. PREPROCESS
+# 5. PREPROCESS (SAMA)
 # =========================
 def prepare_image(uploaded_file, size=(224, 224)):
     img = Image.open(uploaded_file).convert('RGB')
@@ -83,19 +83,24 @@ if uploaded_file is not None:
     st.image(img, use_container_width=True)
 
     # ====================== 
-    # SEGMENTATION
+    # SEGMENTATION (FIX)
     # ====================== 
     raw_mask = seg_model.predict(img_array, verbose=0)[0]
 
     if raw_mask.shape[-1] == 1:
         raw_mask = raw_mask.squeeze()
 
-    # Logika binarisasi & smoothing mengikuti Colab
+    # ====================== 
+    # FIX VISUAL (INI YANG BENER)
+    # ====================== 
+    mask_display = cv2.normalize(raw_mask, None, 0, 255, cv2.NORM_MINMAX)
+    mask_display = mask_display.astype(np.uint8)
+
+    # ====================== 
+    # BINARY (SAMA KAYAK NOTEBOOK)
+    # ====================== 
     pred_mask = (raw_mask > 0.3).astype(np.uint8)
     pred_mask = cv2.medianBlur(pred_mask, 5)
-
-    # Konversi ke skala 0-255 khusus untuk ditampilkan di layar
-    mask_display = pred_mask * 255
 
     # ====================== 
     # APPLY MASK
@@ -118,7 +123,7 @@ if uploaded_file is not None:
     confidence = float(pred_cls[0][idx])
 
     # ====================== 
-    # VISUALISASI
+    # VISUALISASI (FIX)
     # ====================== 
     col1, col2, col3 = st.columns(3)
 
@@ -126,13 +131,13 @@ if uploaded_file is not None:
         st.image(img, caption="Original")
 
     with col2:
-        st.image(mask_display, caption="Mask", clamp=True)
+        # 🔥 PAKAI mask_display, BUKAN pred_mask
+        st.image(mask_display, caption="Mask (Visible)", clamp=True)
 
     with col3:
-        # Menyamakan efek visual alpha=0.5 di Colab (Matplotlib) menggunakan OpenCV
         overlay = np.array(img)
         heatmap = cv2.applyColorMap(mask_display, cv2.COLORMAP_JET)
-        overlay = cv2.addWeighted(overlay, 0.5, heatmap, 0.5, 0)
+        overlay = cv2.addWeighted(overlay, 0.7, heatmap, 0.3, 0)
         st.image(overlay, caption="Overlay")
 
     # ====================== 
@@ -141,8 +146,9 @@ if uploaded_file is not None:
     st.subheader("Prediction")
 
     if label == "Normal":
-        st.success(f"{label} - {confidence:.2%}")
+        st.success(label)
     else:
-        st.error(f"{label} - {confidence:.2%}")
+        st.error(label)
 
+    st.write(f"Confidence: {confidence:.4f}")
     st.progress(float(confidence))
