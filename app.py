@@ -141,8 +141,8 @@ if uploaded_file is not None:
     st.subheader("Prediction")
 
     if label == "Normal":
-        st.success(f"{label} - {confidence:.2%}")
+        st.success(f"{label} = {confidence:.2%}")
     else:
-        st.error(f"{label} - {confidence:.2%}")
+        st.error(f"{label} = {confidence:.2%}")
 
     st.progress(float(confidence))
