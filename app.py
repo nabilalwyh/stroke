@@ -1,6 +1,3 @@
-# =========================
-# 1. IMPORT
-# =========================
 import streamlit as st
 import tensorflow as tf
 import numpy as np
@@ -13,9 +10,7 @@ import os
 import uuid
 from datetime import datetime, date
 
-# =========================
-# 2. CUSTOM LOSS
-# =========================
+# custom loss
 def dice_coef(y_true, y_pred, smooth=1e-6):
     y_true_f = K.flatten(y_true)
     y_pred_f = K.flatten(y_pred)
@@ -33,9 +28,7 @@ def iou(y_true, y_pred):
     intersection = K.sum(y_true * y_pred)
     return (intersection + smooth) / (K.sum(y_true + y_pred) - intersection + smooth)
 
-# =========================
-# 3. DATABASE
-# =========================
+# database
 DB_NAME = "history_ct_scan.db"
 SAVE_DIR = "history_images"
 
@@ -124,9 +117,7 @@ def save_images(img, mask_display, overlay):
 
 init_db()
 
-# =========================
-# 4. LOAD MODEL
-# =========================
+# load model
 @st.cache_resource
 def load_models():
     seg_model = tf.keras.models.load_model(
@@ -144,14 +135,9 @@ def load_models():
 
 seg_model, cls_model = load_models()
 
-# =========================
-# 5. LABEL
-# =========================
 class_labels = ["Normal", "Hemoragik", "Iskemik"]
 
-# =========================
-# 6. PREPROCESS
-# =========================
+# data preprocessing
 def prepare_image(uploaded_file, size=(224, 224)):
     img = Image.open(uploaded_file).convert('RGB')
     img = img.resize(size)
@@ -161,18 +147,14 @@ def prepare_image(uploaded_file, size=(224, 224)):
 
     return img, img_array
 
-# =========================
-# 7. SIDEBAR NAVIGATION
-# =========================
+# sidebar navigation
 st.sidebar.title("Menu")
 page = st.sidebar.radio(
     "Pilih Halaman",
     ["Upload CT Scan", "History CT Scan Pasien"]
 )
 
-# =========================
-# 8. PAGE: UPLOAD CT SCAN
-# =========================
+# page 1: upload ct scan
 if page == "Upload CT Scan":
 
     st.title("🧠 Stroke Detection")
@@ -203,23 +185,21 @@ if page == "Upload CT Scan":
             st.subheader("Original Image")
             st.image(img, use_container_width=True)
 
-            # ====================== 
-            # SEGMENTATION
-            # ====================== 
+            # segmentasi
             raw_mask = seg_model.predict(img_array, verbose=0)[0]
 
             if raw_mask.shape[-1] == 1:
                 raw_mask = raw_mask.squeeze()
 
-            # Mask untuk visualisasi
+            # mask untuk visualisasi
             mask_display = cv2.normalize(raw_mask, None, 0, 255, cv2.NORM_MINMAX)
             mask_display = mask_display.astype(np.uint8)
 
-            # Binary mask untuk input klasifikasi
+            # binary mask untuk input klasifikasi
             pred_mask = (raw_mask > 0.3).astype(np.uint8)
             pred_mask = cv2.medianBlur(pred_mask, 5)
 
-            # Apply mask ke original image
+            # spply mask ke original image
             masked_img = img_array[0] * np.expand_dims(pred_mask, axis=-1)
 
             if masked_img.shape[-1] == 1:
@@ -228,18 +208,14 @@ if page == "Upload CT Scan":
             masked_img = cv2.resize(masked_img, (224, 224))
             masked_img = np.expand_dims(masked_img, axis=0)
 
-            # ====================== 
-            # CLASSIFICATION
-            # ====================== 
+            # klasifikasi
             pred_cls = cls_model.predict(masked_img, verbose=0)
 
             idx = np.argmax(pred_cls)
             label = class_labels[idx]
             confidence = float(pred_cls[0][idx])
 
-            # ====================== 
-            # OVERLAY
-            # ====================== 
+            # overlay
             overlay = np.array(img)
 
             heatmap = cv2.applyColorMap(mask_display, cv2.COLORMAP_JET)
@@ -247,9 +223,7 @@ if page == "Upload CT Scan":
 
             overlay = cv2.addWeighted(overlay, 0.7, heatmap, 0.3, 0)
 
-            # ====================== 
-            # VISUALISASI
-            # ====================== 
+            # visualisasi hasil
             st.subheader("Hasil Segmentasi")
 
             col1, col2, col3 = st.columns(3)
@@ -263,9 +237,7 @@ if page == "Upload CT Scan":
             with col3:
                 st.image(overlay, caption="Overlay", use_container_width=True)
 
-            # ====================== 
-            # RESULT
-            # ====================== 
+            # hasil
             st.subheader("Hasil Prediksi")
 
             st.write(f"Nama Pasien: **{patient_name}**")
@@ -279,9 +251,7 @@ if page == "Upload CT Scan":
             st.write(f"Confidence: **{confidence:.4f}**")
             st.progress(float(confidence))
 
-            # ====================== 
-            # SAVE HISTORY
-            # ====================== 
+            # menyimpan history 
             if st.button("Simpan ke History"):
                 original_path, mask_path, overlay_path = save_images(
                     img,
@@ -301,9 +271,7 @@ if page == "Upload CT Scan":
 
                 st.success("Data CT Scan pasien berhasil disimpan ke history.")
 
-# =========================
-# 9. PAGE: HISTORY
-# =========================
+# page 2: history
 elif page == "History CT Scan Pasien":
 
     st.title("📋 History CT Scan Pasien")
