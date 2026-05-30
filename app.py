@@ -1,10 +1,21 @@
+# =========================
+# 1. IMPORT
+# =========================
 import streamlit as st
 import tensorflow as tf
 import numpy as np
 import cv2
 from PIL import Image
 import tensorflow.keras.backend as K
+import sqlite3
+import pandas as pd
+import os
+import uuid
+from datetime import datetime, date
 
+# =========================
+# 2. CUSTOM LOSS
+# =========================
 def dice_coef(y_true, y_pred, smooth=1e-6):
     y_true_f = K.flatten(y_true)
     y_pred_f = K.flatten(y_pred)
@@ -22,6 +33,100 @@ def iou(y_true, y_pred):
     intersection = K.sum(y_true * y_pred)
     return (intersection + smooth) / (K.sum(y_true + y_pred) - intersection + smooth)
 
+# =========================
+# 3. DATABASE
+# =========================
+DB_NAME = "history_ct_scan.db"
+SAVE_DIR = "history_images"
+
+os.makedirs(SAVE_DIR, exist_ok=True)
+
+def init_db():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            patient_name TEXT NOT NULL,
+            birth_date TEXT NOT NULL,
+            upload_time TEXT NOT NULL,
+            prediction_label TEXT NOT NULL,
+            confidence REAL NOT NULL,
+            original_path TEXT NOT NULL,
+            mask_path TEXT NOT NULL,
+            overlay_path TEXT NOT NULL
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+def insert_history(patient_name, birth_date, prediction_label, confidence, original_path, mask_path, overlay_path):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO history (
+            patient_name, birth_date, upload_time, prediction_label, confidence,
+            original_path, mask_path, overlay_path
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        patient_name,
+        str(birth_date),
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        prediction_label,
+        confidence,
+        original_path,
+        mask_path,
+        overlay_path
+    ))
+
+    conn.commit()
+    conn.close()
+
+def get_history():
+    conn = sqlite3.connect(DB_NAME)
+    df = pd.read_sql_query("""
+        SELECT 
+            id,
+            patient_name,
+            birth_date,
+            upload_time,
+            prediction_label,
+            confidence,
+            original_path,
+            mask_path,
+            overlay_path
+        FROM history
+        ORDER BY id DESC
+    """, conn)
+    conn.close()
+    return df
+
+def save_images(img, mask_display, overlay):
+    file_id = uuid.uuid4().hex
+
+    original_path = os.path.join(SAVE_DIR, f"{file_id}_original.png")
+    mask_path = os.path.join(SAVE_DIR, f"{file_id}_mask.png")
+    overlay_path = os.path.join(SAVE_DIR, f"{file_id}_overlay.png")
+
+    img.save(original_path)
+
+    mask_img = Image.fromarray(mask_display)
+    mask_img.save(mask_path)
+
+    overlay_img = Image.fromarray(overlay)
+    overlay_img.save(overlay_path)
+
+    return original_path, mask_path, overlay_path
+
+init_db()
+
+# =========================
+# 4. LOAD MODEL
+# =========================
 @st.cache_resource
 def load_models():
     seg_model = tf.keras.models.load_model(
@@ -39,8 +144,14 @@ def load_models():
 
 seg_model, cls_model = load_models()
 
+# =========================
+# 5. LABEL
+# =========================
 class_labels = ["Normal", "Hemoragik", "Iskemik"]
 
+# =========================
+# 6. PREPROCESS
+# =========================
 def prepare_image(uploaded_file, size=(224, 224)):
     img = Image.open(uploaded_file).convert('RGB')
     img = img.resize(size)
@@ -50,60 +161,195 @@ def prepare_image(uploaded_file, size=(224, 224)):
 
     return img, img_array
 
-st.title("🧠 Stroke Detection (Seg + Cls)")
+# =========================
+# 7. SIDEBAR NAVIGATION
+# =========================
+st.sidebar.title("Menu")
+page = st.sidebar.radio(
+    "Pilih Halaman",
+    ["Upload CT Scan", "History CT Scan Pasien"]
+)
 
-uploaded_file = st.file_uploader("Upload CT Scan", type=["png", "jpg", "jpeg"])
+# =========================
+# 8. PAGE: UPLOAD CT SCAN
+# =========================
+if page == "Upload CT Scan":
 
-if uploaded_file is not None:
+    st.title("🧠 Stroke Detection")
+    st.write("Sistem segmentasi dan klasifikasi penyakit stroke berdasarkan citra CT Scan otak.")
 
-    img, img_array = prepare_image(uploaded_file)
+    st.subheader("Data Pasien")
 
-    st.subheader("Original Image")
-    st.image(img, use_container_width=True)
+    patient_name = st.text_input("Nama Pasien")
+    birth_date = st.date_input(
+        "Tanggal Lahir",
+        value=date(2000, 1, 1),
+        min_value=date(1900, 1, 1),
+        max_value=date.today()
+    )
 
-    raw_mask = seg_model.predict(img_array, verbose=0)[0]
+    uploaded_file = st.file_uploader(
+        "Upload CT Scan",
+        type=["png", "jpg", "jpeg"]
+    )
 
-    if raw_mask.shape[-1] == 1:
-        raw_mask = raw_mask.squeeze()
+    if uploaded_file is not None:
 
-    pred_mask = (raw_mask > 0.3).astype(np.uint8)
-    pred_mask = cv2.medianBlur(pred_mask, 5)
+        if patient_name.strip() == "":
+            st.warning("Nama pasien belum diisi.")
+        else:
+            img, img_array = prepare_image(uploaded_file)
 
-    mask_display = pred_mask * 255
+            st.subheader("Original Image")
+            st.image(img, use_container_width=True)
 
-    masked_img = img_array[0] * np.expand_dims(pred_mask, axis=-1)
+            # ====================== 
+            # SEGMENTATION
+            # ====================== 
+            raw_mask = seg_model.predict(img_array, verbose=0)[0]
 
-    if masked_img.shape[-1] == 1:
-        masked_img = np.repeat(masked_img, 3, axis=-1)
+            if raw_mask.shape[-1] == 1:
+                raw_mask = raw_mask.squeeze()
 
-    masked_img = cv2.resize(masked_img, (224, 224))
-    masked_img = np.expand_dims(masked_img, axis=0)
+            # Mask untuk visualisasi
+            mask_display = cv2.normalize(raw_mask, None, 0, 255, cv2.NORM_MINMAX)
+            mask_display = mask_display.astype(np.uint8)
 
-    pred_cls = cls_model.predict(masked_img, verbose=0)
+            # Binary mask untuk input klasifikasi
+            pred_mask = (raw_mask > 0.3).astype(np.uint8)
+            pred_mask = cv2.medianBlur(pred_mask, 5)
 
-    idx = np.argmax(pred_cls)
-    label = class_labels[idx]
-    confidence = float(pred_cls[0][idx])
+            # Apply mask ke original image
+            masked_img = img_array[0] * np.expand_dims(pred_mask, axis=-1)
 
-    col1, col2, col3 = st.columns(3)
+            if masked_img.shape[-1] == 1:
+                masked_img = np.repeat(masked_img, 3, axis=-1)
 
-    with col1:
-        st.image(img, caption="Original")
+            masked_img = cv2.resize(masked_img, (224, 224))
+            masked_img = np.expand_dims(masked_img, axis=0)
 
-    with col2:
-        st.image(mask_display, caption="Mask", clamp=True)
+            # ====================== 
+            # CLASSIFICATION
+            # ====================== 
+            pred_cls = cls_model.predict(masked_img, verbose=0)
 
-    with col3:
-        overlay = np.array(img)
-        heatmap = cv2.applyColorMap(mask_display, cv2.COLORMAP_JET)
-        overlay = cv2.addWeighted(overlay, 0.5, heatmap, 0.5, 0)
-        st.image(overlay, caption="Overlay")
+            idx = np.argmax(pred_cls)
+            label = class_labels[idx]
+            confidence = float(pred_cls[0][idx])
 
-    st.subheader("Prediction")
+            # ====================== 
+            # OVERLAY
+            # ====================== 
+            overlay = np.array(img)
 
-    if label == "Normal":
-        st.success(f"{label} = {confidence:.2%}")
+            heatmap = cv2.applyColorMap(mask_display, cv2.COLORMAP_JET)
+            heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
+
+            overlay = cv2.addWeighted(overlay, 0.7, heatmap, 0.3, 0)
+
+            # ====================== 
+            # VISUALISASI
+            # ====================== 
+            st.subheader("Hasil Segmentasi")
+
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                st.image(img, caption="Original", use_container_width=True)
+
+            with col2:
+                st.image(mask_display, caption="Mask", clamp=True, use_container_width=True)
+
+            with col3:
+                st.image(overlay, caption="Overlay", use_container_width=True)
+
+            # ====================== 
+            # RESULT
+            # ====================== 
+            st.subheader("Hasil Prediksi")
+
+            st.write(f"Nama Pasien: **{patient_name}**")
+            st.write(f"Tanggal Lahir: **{birth_date}**")
+
+            if label == "Normal":
+                st.success(f"Hasil Prediksi: {label}")
+            else:
+                st.error(f"Hasil Prediksi: {label}")
+
+            st.write(f"Confidence: **{confidence:.4f}**")
+            st.progress(float(confidence))
+
+            # ====================== 
+            # SAVE HISTORY
+            # ====================== 
+            if st.button("Simpan ke History"):
+                original_path, mask_path, overlay_path = save_images(
+                    img,
+                    mask_display,
+                    overlay
+                )
+
+                insert_history(
+                    patient_name=patient_name,
+                    birth_date=birth_date,
+                    prediction_label=label,
+                    confidence=confidence,
+                    original_path=original_path,
+                    mask_path=mask_path,
+                    overlay_path=overlay_path
+                )
+
+                st.success("Data CT Scan pasien berhasil disimpan ke history.")
+
+# =========================
+# 9. PAGE: HISTORY
+# =========================
+elif page == "History CT Scan Pasien":
+
+    st.title("📋 History CT Scan Pasien")
+    st.write("Halaman ini menampilkan riwayat hasil pemeriksaan CT Scan pasien.")
+
+    df_history = get_history()
+
+    if df_history.empty:
+        st.info("Belum ada data history yang tersimpan.")
     else:
-        st.error(f"{label} = {confidence:.2%}")
+        df_display = df_history[[
+            "id",
+            "patient_name",
+            "birth_date",
+            "upload_time",
+            "prediction_label",
+            "confidence"
+        ]].copy()
 
-    st.progress(float(confidence))
+        df_display["confidence"] = df_display["confidence"].apply(lambda x: f"{x:.4f}")
+
+        st.subheader("Daftar History")
+        st.dataframe(df_display, use_container_width=True)
+
+        selected_id = st.selectbox(
+            "Pilih ID untuk melihat detail",
+            df_history["id"].tolist()
+        )
+
+        selected_data = df_history[df_history["id"] == selected_id].iloc[0]
+
+        st.subheader("Detail Pemeriksaan")
+
+        st.write(f"Nama Pasien: **{selected_data['patient_name']}**")
+        st.write(f"Tanggal Lahir: **{selected_data['birth_date']}**")
+        st.write(f"Waktu Upload: **{selected_data['upload_time']}**")
+        st.write(f"Hasil Prediksi: **{selected_data['prediction_label']}**")
+        st.write(f"Confidence: **{selected_data['confidence']:.4f}**")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.image(selected_data["original_path"], caption="Original", use_container_width=True)
+
+        with col2:
+            st.image(selected_data["mask_path"], caption="Mask", use_container_width=True)
+
+        with col3:
+            st.image(selected_data["overlay_path"], caption="Overlay", use_container_width=True)
