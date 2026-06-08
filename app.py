@@ -1,6 +1,5 @@
-# =========================
+
 # 1. IMPORT
-# =========================
 import streamlit as st
 import tensorflow as tf
 import numpy as np
@@ -8,9 +7,7 @@ import cv2
 from PIL import Image
 import tensorflow.keras.backend as K
 
-# =========================
 # 2. CUSTOM LOSS & METRIC
-# =========================
 def dice_coef(y_true, y_pred, smooth=1e-6):
     y_true_f = K.flatten(y_true)
     y_pred_f = K.flatten(y_pred)
@@ -28,9 +25,7 @@ def iou(y_true, y_pred):
     intersection = K.sum(y_true * y_pred)
     return (intersection + smooth) / (K.sum(y_true + y_pred) - intersection + smooth)
 
-# =========================
 # 3. LOAD MODEL
-# =========================
 @st.cache_resource
 def load_models():
     seg_model = tf.keras.models.load_model(
@@ -47,14 +42,10 @@ def load_models():
 
 seg_model, cls_model = load_models()
 
-# =========================
 # 4. LABEL KLASIFIKASI
-# =========================
 class_labels = ["Normal", "Hemoragik", "Iskemik"]
 
-# =========================
 # 5. PREPROCESS IMAGE
-# =========================
 def prepare_image(uploaded_file, size=(224, 224)):
     img = Image.open(uploaded_file).convert("RGB")
     img = img.resize(size)
@@ -62,18 +53,14 @@ def prepare_image(uploaded_file, size=(224, 224)):
     img_array = np.expand_dims(img_array, axis=0)
     return img, img_array
 
-# =========================
 # 6. STREAMLIT CONFIG
-# =========================
 st.set_page_config(
     page_title="Stroke Detection",
     page_icon="🧠",
     layout="wide"
 )
 
-# =========================
 # 7. HALAMAN UPLOAD CT SCAN
-# =========================
 st.title("🧠 Stroke Detection")
 st.write("Sistem segmentasi dan klasifikasi stroke berbasis citra CT Scan otak.")
 
@@ -87,9 +74,7 @@ if uploaded_file is not None:
     st.subheader("Citra CT Scan")
     st.image(img, caption="Original Image", use_container_width=True)
 
-    # ======================
     # SEGMENTASI
-    # ======================
     with st.spinner("Melakukan segmentasi..."):
         raw_mask = seg_model.predict(img_array, verbose=0)[0]
     if raw_mask.shape[-1] == 1:
@@ -104,25 +89,19 @@ if uploaded_file is not None:
     masked_img = cv2.resize(masked_img, (224, 224))
     masked_img = np.expand_dims(masked_img, axis=0)
 
-    # ======================
     # KLASIFIKASI
-    # ======================
     pred_cls = cls_model.predict(masked_img, verbose=0)
     idx = np.argmax(pred_cls)
     label = class_labels[idx]
     confidence = float(pred_cls[0][idx])
 
-    # ======================
     # OVERLAY
-    # ======================
     overlay = np.array(img)
     heatmap = cv2.applyColorMap(mask_display, cv2.COLORMAP_JET)
     heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
     overlay = cv2.addWeighted(overlay, 0.7, heatmap, 0.3, 0)
 
-    # ======================
     # VISUALISASI HASIL
-    # ======================
     st.subheader("Hasil Segmentasi")
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -135,9 +114,7 @@ if uploaded_file is not None:
         st.image(overlay, caption="Overlay", use_container_width=True)
         st.info("Overlay citra asli dengan mask, menggunakan heatmap untuk visualisasi area lesi.")
 
-    # ======================
     # HASIL PREDIKSI
-    # ======================
     st.subheader("Hasil Prediksi")
     if label == "Normal":
         st.success(f"Hasil Prediksi: {label}")
@@ -146,15 +123,7 @@ if uploaded_file is not None:
     st.write(f"Confidence: **{confidence:.4f}**")
     st.progress(float(confidence))
 
-    # ======================
     # DOWNLOAD HASIL
-    # ======================
-    st.download_button(
-        label="Download Mask (PNG)",
-        data=cv2.imencode(".png", mask_display)[1].tobytes(),
-        file_name="mask_result.png",
-        mime="image/png"
-    )
     st.download_button(
         label="Download Overlay (PNG)",
         data=cv2.imencode(".png", overlay)[1].tobytes(),
