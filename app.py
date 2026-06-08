@@ -77,13 +77,6 @@ st.set_page_config(
 st.title("🧠 Stroke Detection")
 st.write("Sistem segmentasi dan klasifikasi stroke berbasis citra CT Scan otak.")
 
-st.subheader("Data Pasien")
-patient_name = st.text_input("Nama Pasien")
-birth_date = st.date_input(
-    "Tanggal Lahir",
-    value=st.session_state.get("birth_date", None) or None
-)
-
 uploaded_file = st.file_uploader(
     "Upload CT Scan",
     type=["png", "jpg", "jpeg"]
